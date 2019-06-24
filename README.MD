@@ -125,6 +125,59 @@ ECMAScript的标准 特别是6推出以后我们可以用比较少的代码完�
 
 我们就着重说下webpack呗 其实很多分析已经烂大街了。如果我15年就写 没准已经成大神了 。
 
+它的原理
+
+1. 	万物皆模块。然后就使用loader 进行配置不同的模块进行处理
+2. 从入口建立反向查找的树形结构。（从树的主干开始查找到每一个叶子。读入内存中） 
+
+## webpack 配置
+
+	{
+		model: 'production', // 传入环境变量 用于让webpack 处理优化策略
+		entry: {
+			'a': 'xxx/a.js',
+			'b': 'xxx/b.js'
+		}, // 这里是说入口文件 这里支持三种形式 1 string 这里单页面基本上就这样。 在webpack 4的默认文件中为 src/index.js 2、上面的对象形式。这样的好处就是在生成的文件中可以使用name 有明确的规定。3、使用数组形式[a.js, b.js]
+		output: {
+			publicPath: '/',
+			path: '',
+			filename: '',
+			libraryTarget: ''
+		},
+		module: {
+			noParse: '',// 这里就是一个优化的点。这里配置的一个正则| function 字符串就是不加入到编译的序列里面。
+			rules: {
+				test: /\.vue$/,// 这里就是说匹配的后缀名
+				loader: ''vue-loader,// 当匹配上之后使用loader
+				options: vueLoaderConfig,// 这里就是这个loader的参数
+				enforce: '',// loader的种类。我也没有遇到过				exclude:[] //数组类型表示排除这些地方的vue文件
+				use:'', 这里其实也是loader的意思 要注意的是webpack采用的是从右往左。从下往上的解析路径。
+				
+			}
+		},
+		reslove: {
+			alias: {
+				'src': path.reslove('src')
+			},//别名
+			extensions: ['.json', '.js', '.vue'] //隐藏扩展名 在引入的时候不用写自己查找	modules: ''//解析的目录 这里制定了也可以增加打包速度
+		},	
+		optimization: { // 从webpack4 之后 默认的时候通过mode 来进行优化策略，这里其实我们也可以自定义优化策略 这里就不详细写了
+			minimize: true //这里是表示要用一个插件 TerserPlugin 来进行最小化代码。以前我们使用UglifyJsPlugin在webpack 4中不能最小化ecmascript 2015
+			minimizer: []//这里就是上面那个插件的配置信息了。很奇怪啊这里的插件不再plugins里面了
+		},//这个就是优化 但是优化什么呢？
+		plugins: [
+			DefinePlugin()// 定义环境变量等信息的插件 
+			ExtractTextPlugin()// 把css从每一个model中抽出变成一个css文件
+			CopyWebpackPlugin()  // 主要是用来把承载页给生成
+			HotModuleReplace() // 热更新插件 后续会说一下热更新原理
+			HtmlWebpackPlugin() // 拷贝静态资源的插件
+			UglifyJsPlugin() //压缩混淆代码的 
+			OptimizeCSSPlugin() //优化css的插件
+			HashedModuleIdsPlugin() //使用hash作为moduleid
+			CommonsChunkPlugin() // 把公用代码作为vender 来抽出来
+			CompressionWebpackPlugin() //使用giz 传输
+		]
+	}
 
 
 
