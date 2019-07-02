@@ -180,6 +180,114 @@ ECMAScript的标准 特别是6推出以后我们可以用比较少的代码完�
 	}
 
 
+## webpack 源码分析
+本次分析以 3.0版本为依托。 4.0以上版本 作者对于写法有比较大的改动。但原理没有改变
+
+首先查看webpack的package.json 这里有个main 是lib/webpack.js 这里就是webpack的入口文件。
+
+webpack.js 分析
+
+首先是引入了一大堆的别的模块 值得注意的主要是这个
+
+	Compiler.js 这个就是所有的编译查找的类
+	
+	WebpackOptionsDefaulter.js 这个类就是把一些默认的配置搞进去。但是这个并不是很重要。
+	
+	WebpackOptionsApply.js 这个其实是最重要的部分 这个会把一些插件给加入到webpack中。
+	
+	
+这里要注意说明下。webpack最重要的机制就是它的插件机制。通过它的插件机制它可以提供很多丰富的插件来完善自己提供更加强大的功能。	
+	
+	这个js就产生了一个compiler实例。然后开始触发设置的hook 完善配置 调用 compiler的 run方法。
+	
+接下来就要看 compiler.js的代码 上面就是调用了run方法那么我就主要开始分析run干了啥
+
+	这里看到其实他就做了两个事情
+	
+	1 触发了两个hook 1、before-run 2、run
+	
+	2 调用自身的 compile方法 
+	
+这里就看到了其实它主要是用调用了compile方法
+
+但是要主要这里 compiler 继承自一个叫做Tapable的类。这个类提供了hook机制。这个机制其实和事件监听是一个类型就是提供了一个事件队列 然后出发的时候依次调用。这里要注意 hook 分为这么几种
+	
+	1 同步hook 它在代码中是没有async的结尾的。我把它作为一种通知的hook。它的意思就是 我要做什么事情了。通知到关心的人。但是关心的人并不能对发生的事情有任何阻止。只是一个单纯的通知到。也没有任何返回。
+	
+	2 异步hook 这个基本上就是以 async结尾的hook。这里就是它的返回结果将会影响下一步。
+	
+		这里要注意异步的hook 也分两种。1、 串行。每一个都是单纯的一个hook。就是类似普通的异步hook 就是一个个来。
+		2、并行的hook 这里就是多个都完成之后才会执行下一步。很类似 promise的all 或者说更类似于 promise的 新的那个allSettled 都是reslove 才会执行下一步。 这个一般是以parallel结尾。
+		
+那么我们看下 compile方法里面都干了啥
+
+	第一执行了下 before-compile hook 看看有没有人在编译之前还要干啥 是否要检查下。这个是异步hook。
+	
+	第二个就是一个同步hook compile 
+	
+	第三步这里就出现了另外一个灰常重要的类 copmilation 就是真正干活的人来了。
+	
+	第四这就出现了一个灰常重要的hook 这个就是并行的异步hook make 当时我第一次看到的时候也纳闷了很久这个hook在哪里搞得。先不管先看下一步
+	
+	第五步就是 我干完了 然后调用 compilation的finish方法
+	
+	第六步 掉用了compilation的eal方法 里面有个异步的hook after-compile
+	
+	第七部 返回了callback方法
+	
+这里咱们就看到了其实主要的动作就是那个并行的hook make 那这个玩意是在哪里呢？ 我们从上面的源码分析中似乎并没有发现。不要着急，其实上面我说了有个很重要的WebpackOptionsApply.js 这里就是把很多的插件给默认弄进去了 这里我们就去看看它吧
+
+WebpackOptionsApply.js 
+
+	这里就是一大堆插件 这里我们注意到后个叫做 EntryOptionPlugin.js这个就是一个入口的插件。这里就提供了webpack 打包入口。
+	
+我们看看这个 入口文件做了什么
+
+	打开之后发现其实他就做了 这么几件事情
+	1、注册了‘entry-option’ 事件
+	2、判断入口是单入口还是多入口还是回调方法	
+	3、根据上面不同来选择不同的插件
+	
+这里我们就按照单入口的形式进行插件调用	singleEntryPlugin.js
+
+打开这个文件查看这个文件的作用
+	1、 注册了一个compilation 的事件。触发之后产生了一个normalModuleFactory的工厂类。这个工厂类就是产生module的。这里要记住下
+	2、注册了make事件。这里就要进行读取文件方法了。这个产生一个依赖然后顺着这个依赖进行查找整个的module。
+	这里就调用了comilation.addEntry方法。我们看一下addEntry
+	
+	
+comilation.js
+
+这里又回到了这个方法 我们开始查看通过addEntry来做的一系列操作
+
+	1、通过另外一个_addModuleChain 方法来把module进行串联起来
+	2、这里的_addModule里面就调用moduleFactory产生模块
+	
+我们来看看模块产生干了啥
+
+因为我们上面使用的是normalModuleFactory 所以里面产生的是normalModule 我们就看下normalModule的源码
+
+	这里就是有个dobuild 方法这里就要看这个了
+	
+	这里有个runLoaders 方法 这里就是通过这个类把里面的loader 进行引入和使用。我们可以简单看看
+	
+	哇哦 里面功能太丰富了。简单来说就是通过配置里面的loader 真正查找loader 然后找到这个nodule真正需要哪一个loader 然后调用编译方法 。把返回值存起来
+	
+上面的过程简单来说就是make插件做的。是不是感觉很多。其实上面很多都是在编译前期。这里没有很多的hook给开发人员。大多数都是默认就行了。	
+
+接下来就是上面的coplation.js里面的 finish方法这里就做了很多的完成后的动作。其实我们很多的插件都是在这个阶段。这个阶段提供了很多优化方案，
+
+先写到这里吧。 心情很低落。
+
+
+
+	
+		
+
+	
+	
+	
+
 
 
 	
